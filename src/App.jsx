@@ -12,6 +12,7 @@ import KeuanganView from './views/KeuanganView';
 import PencatatanPengeluaranView from './views/PencatatanPengeluaranView';
 
 import { API_URL, RECURRING_URL } from './shared/constants';
+import { UnifiedExpenseDB } from './db/unifiedExpenses';
 
 export default function App() {
   // Authentication State
@@ -32,7 +33,6 @@ export default function App() {
 
   // Fetch all transactions
   const fetchTransactions = useCallback(async () => {
-    setIsFetching(true);
     try {
       const res = await fetch(API_URL);
       if (res.ok) {
@@ -41,23 +41,34 @@ export default function App() {
       }
     } catch (e) {
       console.warn('Gagal memuat data transaksi:', e);
+    }
+  }, []);
+
+  // Unified Refresh for both Transactions and Expenses from MongoDB Pusat
+  const refreshAllData = useCallback(async () => {
+    setIsFetching(true);
+    try {
+      await Promise.allSettled([
+        fetchTransactions(),
+        UnifiedExpenseDB.fetchAll()
+      ]);
+    } catch (e) {
+      console.warn('Gagal menyinkronkan data pusat:', e);
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  }, [fetchTransactions]);
 
   // Trigger recurring auto-apply & initial fetch
   useEffect(() => {
     if (isAuthenticated) {
       // 1. Trigger recurring auto-apply
-      fetch(`${RECURRING_URL}/trigger`, { method: 'POST' }).catch((e) => {
-        console.warn('Trigger recurring error:', e);
-      });
+      fetch(`${RECURRING_URL}/trigger`, { method: 'POST' }).catch(() => {});
 
-      // 2. Fetch transactions data
-      fetchTransactions();
+      // 2. Fetch both transactions and expenses from MongoDB pusat
+      refreshAllData();
     }
-  }, [isAuthenticated, fetchTransactions]);
+  }, [isAuthenticated, refreshAllData]);
 
   // Handle Login Success
   const handleLoginSuccess = () => {
@@ -97,7 +108,7 @@ export default function App() {
         {/* Top HeaderBar */}
         <HeaderBar
           activeTab={currentTab}
-          onRefresh={fetchTransactions}
+          onRefresh={refreshAllData}
           isRefreshing={isFetching}
           onLock={handleLogout}
         />
@@ -115,16 +126,16 @@ export default function App() {
             ) : (
               <>
                 {currentTab === 'input_pengeluaran' && (
-                  <PencatatanPengeluaranView />
+                  <PencatatanPengeluaranView onRefresh={refreshAllData} />
                 )}
                 {currentTab === 'penjualan' && (
-                  <PenjualanView rawData={rawData} onRefresh={fetchTransactions} />
+                  <PenjualanView rawData={rawData} onRefresh={refreshAllData} />
                 )}
                 {currentTab === 'pengeluaran' && (
-                  <PengeluaranView rawData={rawData} onRefresh={fetchTransactions} />
+                  <PengeluaranView rawData={rawData} onRefresh={refreshAllData} />
                 )}
                 {currentTab === 'keuangan' && (
-                  <KeuanganView rawData={rawData} onRefresh={fetchTransactions} />
+                  <KeuanganView rawData={rawData} onRefresh={refreshAllData} />
                 )}
               </>
             )}

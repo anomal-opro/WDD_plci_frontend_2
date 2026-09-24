@@ -10,7 +10,7 @@ import {
 
 import { MENU_PLCI, MENU_MM, STOCK_BYPASS_IDS, BRANCH_CONFIG } from './src/shared/constants.js';
 
-const API_BASE = "https://wddplcibackend.vercel.app/api";
+const API_BASE = "https://wdd-plci-backend-2.vercel.app/api";
 const sheetName = "PLCI Kantin SMB";
 
 const testResults = [];

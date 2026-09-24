@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Trash2, Eye, X, Search, UploadCloud } from 'lucide-react';
 import { formatRupiah } from '../shared/utils';
 import { UnifiedExpenseDB } from '../db/unifiedExpenses';
@@ -22,6 +22,16 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Subscribe ke database MongoDB pusat (The One and Only)
+  useEffect(() => {
+    const unsub = UnifiedExpenseDB.subscribe(() => {
+      setDataVersion(v => v + 1);
+    });
+    UnifiedExpenseDB.fetchAll();
+    return unsub;
+  }, []);
 
   // Form State (Tanpa nama staf)
   const [namaBahan, setNamaBahan] = useState('');
@@ -54,7 +64,7 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
     setSatuan(p.unit);
   };
 
-  const handleCreate = (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     const cleanNominal = parseInt(String(totalBiaya).replace(/\D/g, ''), 10) || 0;
     if (!namaBahan || cleanNominal <= 0) {
@@ -67,34 +77,46 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
       ? `${kuantitas ? `${qtyNum} ${satuan} • ` : ''}${keterangan.trim()}` 
       : (kuantitas ? `${qtyNum} ${satuan}` : '');
 
-    UnifiedExpenseDB.create({
-      tanggal,
-      kategori: 'bahan_baku',
-      nama_item: namaBahan.trim(),
-      nominal: cleanNominal,
-      karyawan: 'Operasional',
-      attachment,
-      keterangan: descNote,
-      kuantitas: qtyNum,
-      satuan
-    });
+    setIsSubmitting(true);
+    try {
+      await UnifiedExpenseDB.create({
+        tanggal,
+        kategori: 'bahan_baku',
+        nama_item: namaBahan.trim(),
+        nominal: cleanNominal,
+        karyawan: 'Operasional',
+        attachment,
+        keterangan: descNote,
+        kuantitas: qtyNum,
+        satuan
+      });
 
-    // Reset Form & Close
-    setNamaBahan('');
-    setKuantitas('');
-    setTotalBiaya('');
-    setKeterangan('');
-    setAttachment(null);
-    setShowModal(false);
-    setDataVersion(v => v + 1);
-    if (onDataChange) onDataChange();
+      // Reset Form & Close
+      setNamaBahan('');
+      setKuantitas('');
+      setTotalBiaya('');
+      setKeterangan('');
+      setAttachment(null);
+      setShowModal(false);
+      setDataVersion(v => v + 1);
+      if (onDataChange) onDataChange();
+    } catch (err) {
+      console.error('Gagal menyimpan bahan baku:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDelete = (id) => {
-    if (!window.confirm('Hapus catatan bahan baku ini?')) return;
-    UnifiedExpenseDB.delete(id);
-    setDataVersion(v => v + 1);
-    if (onDataChange) onDataChange();
+  const handleDelete = async (id) => {
+    if (!id) return;
+    if (!window.confirm('Hapus catatan bahan baku ini secara permanen dari database?')) return;
+    try {
+      await UnifiedExpenseDB.delete(id);
+      setDataVersion(v => v + 1);
+      if (onDataChange) onDataChange();
+    } catch (err) {
+      console.error('Gagal menghapus bahan baku:', err);
+    }
   };
 
   const filteredItems = items.filter(item => {
@@ -133,56 +155,59 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
             Belum ada catatan bahan baku.
           </div>
         ) : (
-          filteredItems.map((item) => (
-            <div
-              key={item.id}
-              className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between gap-3"
-            >
-              <div className="flex justify-between items-start gap-2">
-                <div>
-                  <h4 className="font-black text-slate-900 text-sm leading-snug">{item.nama_item}</h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[11px] font-bold text-slate-400">{item.tanggal}</span>
-                    {item.keterangan && (
-                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                        {item.keterangan}
-                      </span>
-                    )}
+          filteredItems.map((item) => {
+            const itemId = item._id || item.id;
+            return (
+              <div
+                key={itemId}
+                className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between gap-3"
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <h4 className="font-black text-slate-900 text-sm leading-snug">{item.nama_item}</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[11px] font-bold text-slate-400">{item.tanggal}</span>
+                      {item.keterangan && (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                          {item.keterangan}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-base font-black text-emerald-700 block">
+                      {formatRupiah(item.nominal)}
+                    </span>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <span className="text-base font-black text-emerald-700 block">
-                    {formatRupiah(item.nominal)}
-                  </span>
+
+                {/* Bottom Action on Mobile */}
+                <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
+                  <div>
+                    {item.attachment ? (
+                      <button
+                        onClick={() => onOpenReceipt && onOpenReceipt(item)}
+                        className="px-3 py-1.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <Eye size={14} />
+                        <span>Lihat Struk</span>
+                      </button>
+                    ) : (
+                      <span className="text-slate-400 text-xs italic">Tanpa Struk</span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => handleDelete(itemId)}
+                    className="p-2 text-slate-400 hover:text-red-600 active:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                    title="Hapus"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
-
-              {/* Bottom Action on Mobile */}
-              <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
-                <div>
-                  {item.attachment ? (
-                    <button
-                      onClick={() => onOpenReceipt && onOpenReceipt(item)}
-                      className="px-3 py-1.5 bg-emerald-50 active:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      <Eye size={14} />
-                      <span>Lihat Struk</span>
-                    </button>
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">Tanpa Struk</span>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  className="p-2 text-slate-400 hover:text-red-600 active:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                  title="Hapus"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -215,43 +240,46 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                    <td className="p-4 font-bold text-slate-800">{item.tanggal}</td>
-                    <td className="p-4">
-                      <p className="font-extrabold text-slate-900 text-sm">{item.nama_item}</p>
-                      {item.keterangan && (
-                        <p className="text-[11px] text-slate-400 mt-0.5">{item.keterangan}</p>
-                      )}
-                    </td>
-                    <td className="p-4 text-right font-black text-emerald-700 text-sm">
-                      {formatRupiah(item.nominal)}
-                    </td>
-                    <td className="p-4 text-center">
-                      {item.attachment ? (
+                filteredItems.map((item, idx) => {
+                  const itemId = item._id || item.id;
+                  return (
+                    <tr key={itemId} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="p-4 font-bold text-slate-800">{item.tanggal}</td>
+                      <td className="p-4">
+                        <p className="font-extrabold text-slate-900 text-sm">{item.nama_item}</p>
+                        {item.keterangan && (
+                          <p className="text-[11px] text-slate-400 mt-0.5">{item.keterangan}</p>
+                        )}
+                      </td>
+                      <td className="p-4 text-right font-black text-emerald-700 text-sm">
+                        {formatRupiah(item.nominal)}
+                      </td>
+                      <td className="p-4 text-center">
+                        {item.attachment ? (
+                          <button
+                            onClick={() => onOpenReceipt && onOpenReceipt(item)}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                          >
+                            <Eye size={13} />
+                            <span>Lihat Struk</span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">Tanpa Struk</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-center">
                         <button
-                          onClick={() => onOpenReceipt && onOpenReceipt(item)}
-                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                          onClick={() => handleDelete(itemId)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus"
                         >
-                          <Eye size={13} />
-                          <span>Lihat Struk</span>
+                          <Trash2 size={15} />
                         </button>
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">Tanpa Struk</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        title="Hapus"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

@@ -30,14 +30,15 @@ export default function PenjualanView({ rawData, onRefresh }) {
   // Order Detail Modal
   const [detailModalItem, setDetailModalItem] = useState(null);
 
-  // 1. Filter transaksi khusus PLCI Kantin SMB & Penjualan (bukan UNPAID, totalPengeluaran === 0)
+  // 1. Filter transaksi khusus PLCI Kantin SMB & Penjualan (bukan UNPAID, totalPengeluaran === 0, bukan deleted)
   const salesData = useMemo(() => {
     if (!Array.isArray(rawData)) return [];
     return rawData.filter(item => {
       const isTargetBranch = item.sheet === BRANCH_INFO.sheetName || item.cabang === BRANCH_INFO.sheetName;
       const isNotUnpaid = !item.jenisPengeluaran || !item.jenisPengeluaran.includes('[UNPAID]');
       const isSales = (Number(item.totalPengeluaran) || 0) === 0;
-      return isTargetBranch && isNotUnpaid && isSales;
+      const notDeleted = !item.isDeleted;
+      return isTargetBranch && isNotUnpaid && isSales && notDeleted;
     });
   }, [rawData]);
 
@@ -54,7 +55,6 @@ export default function PenjualanView({ rawData, onRefresh }) {
     salesData.forEach(item => {
       const { year, month, monthIndex, day, fullDateStr } = parseYearMonthDate(item.tanggal, item.createdAt);
       const income = getIncome(item);
-      const isDeleted = Boolean(item.isDeleted);
 
       if (!yearsMap[year]) {
         yearsMap[year] = {
@@ -67,12 +67,10 @@ export default function PenjualanView({ rawData, onRefresh }) {
         };
       }
 
-      if (!isDeleted) {
-        yearsMap[year].totalIncome += income;
-        yearsMap[year].cashTotal += Number(item.cash) || 0;
-        yearsMap[year].bcaTotal += Number(item.bca) || 0;
-        yearsMap[year].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
-      }
+      yearsMap[year].totalIncome += income;
+      yearsMap[year].cashTotal += Number(item.cash) || 0;
+      yearsMap[year].bcaTotal += Number(item.bca) || 0;
+      yearsMap[year].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
 
       if (!yearsMap[year].months[month]) {
         yearsMap[year].months[month] = {
@@ -88,13 +86,11 @@ export default function PenjualanView({ rawData, onRefresh }) {
         };
       }
 
-      if (!isDeleted) {
-        yearsMap[year].months[month].totalIncome += income;
-        yearsMap[year].months[month].cashTotal += Number(item.cash) || 0;
-        yearsMap[year].months[month].bcaTotal += Number(item.bca) || 0;
-        yearsMap[year].months[month].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
-        yearsMap[year].months[month].transactionCount += 1;
-      }
+      yearsMap[year].months[month].totalIncome += income;
+      yearsMap[year].months[month].cashTotal += Number(item.cash) || 0;
+      yearsMap[year].months[month].bcaTotal += Number(item.bca) || 0;
+      yearsMap[year].months[month].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
+      yearsMap[year].months[month].transactionCount += 1;
 
       if (!yearsMap[year].months[month].days[fullDateStr]) {
         yearsMap[year].months[month].days[fullDateStr] = {
@@ -110,13 +106,10 @@ export default function PenjualanView({ rawData, onRefresh }) {
         };
       }
 
-      if (!isDeleted) {
-        yearsMap[year].months[month].days[fullDateStr].totalIncome += income;
-        yearsMap[year].months[month].days[fullDateStr].cashTotal += Number(item.cash) || 0;
-        yearsMap[year].months[month].days[fullDateStr].bcaTotal += Number(item.bca) || 0;
-        yearsMap[year].months[month].days[fullDateStr].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
-      }
-
+      yearsMap[year].months[month].days[fullDateStr].totalIncome += income;
+      yearsMap[year].months[month].days[fullDateStr].cashTotal += Number(item.cash) || 0;
+      yearsMap[year].months[month].days[fullDateStr].bcaTotal += Number(item.bca) || 0;
+      yearsMap[year].months[month].days[fullDateStr].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
       yearsMap[year].months[month].days[fullDateStr].transactions.push(item);
     });
 
@@ -128,45 +121,32 @@ export default function PenjualanView({ rawData, onRefresh }) {
     return sortedYears;
   }, [salesData, expandedYears]);
 
-  // Handle single soft delete
-  const handleSoftDelete = async (id) => {
-    if (!window.confirm("Pindahkan transaksi ini ke kotak SAMPAH?")) return;
-    try {
-      await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
-      onRefresh();
-    } catch (e) {
-      alert("Gagal memindahkan ke sampah");
-    }
-  };
-
-  // Handle single hard delete
-  const handleHardDelete = async (id) => {
-    if (!window.confirm("🚨 PERINGATAN: Hapus transaksi ini secara PERMANEN? Data tidak dapat dipulihkan!")) return;
+  // Handle single permanent delete directly from MongoDB
+  const handleDeleteTransaction = async (id) => {
+    if (!id) return;
+    if (!window.confirm("Hapus transaksi penjualan ini secara permanen dari database MongoDB?")) return;
     try {
       await fetch(`${API_URL}/hard/${id}`, { method: 'DELETE' });
-      onRefresh();
+      if (onRefresh) onRefresh();
     } catch (e) {
-      alert("Gagal menghapus permanen");
+      alert("Gagal menghapus transaksi dari database");
     }
   };
 
-  // Handle Bulk Delete
-  const handleBulkAction = async (isHard) => {
+  // Handle Bulk Permanent Delete from MongoDB
+  const handleBulkAction = async () => {
     if (selectedIds.length === 0) return;
-    const msg = isHard 
-      ? `🚨 Hapus ${selectedIds.length} transaksi terpilih secara PERMANEN?`
-      : `Pindahkan ${selectedIds.length} transaksi terpilih ke SAMPAH?`;
-    if (!window.confirm(msg)) return;
+    if (!window.confirm(`🚨 Hapus ${selectedIds.length} transaksi terpilih secara PERMANEN dari database MongoDB?`)) return;
 
     setIsProcessingDelete(true);
     try {
       await fetch(`${API_URL}/bulk`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedIds, isHardDelete: isHard })
+        body: JSON.stringify({ ids: selectedIds, isHardDelete: true })
       });
       setSelectedIds([]);
-      onRefresh();
+      if (onRefresh) onRefresh();
     } catch (e) {
       alert("Gagal memproses penghapusan massal");
     } finally {
@@ -224,7 +204,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
     const dayList = Object.values(monthData.days);
     const tableRows = dayList.map(d => [
       d.dateStr,
-      d.transactions.filter(t => !t.isDeleted).length,
+      d.transactions.length,
       formatRupiah(d.cashTotal),
       formatRupiah(d.bcaTotal),
       formatRupiah(d.qrisTotal),
@@ -254,7 +234,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
     doc.text(`Metode: CASH: ${formatRupiah(dayData.cashTotal)} | BCA: ${formatRupiah(dayData.bcaTotal)} | QRIS: ${formatRupiah(dayData.qrisTotal)}`, 14, 40);
 
     const tableColumn = ["Waktu", "Status", "Rincian Item", "Print", "Metode", "Nominal"];
-    const validTransactions = dayData.transactions.filter(t => !t.isDeleted);
+    const validTransactions = dayData.transactions;
     const tableRows = validTransactions.map(t => {
       const time = t.createdAt ? new Date(t.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
       let method = 'CASH';
@@ -398,7 +378,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
                       <tr 
                         key={item._id}
                         className={`hover:bg-slate-50/80 transition-colors ${
-                          isDeleted ? 'bg-red-50/50 opacity-70' : isSelected ? 'bg-emerald-50/40' : ''
+                          isSelected ? 'bg-emerald-50/40' : ''
                         }`}
                       >
                         {/* Checkbox */}
@@ -415,23 +395,15 @@ export default function PenjualanView({ rawData, onRefresh }) {
 
                         {/* Status */}
                         <td className="p-4">
-                          {isDeleted ? (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 border border-red-200">
-                              SAMPAH
-                            </span>
-                          ) : (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
-                              LUNAS
-                            </span>
-                          )}
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                            LUNAS
+                          </span>
                         </td>
 
                         {/* Keterangan Belanja (Clickable to view Order Details) */}
                         <td 
                           onClick={() => setDetailModalItem(item)}
-                          className={`p-4 max-w-xs truncate cursor-pointer font-bold ${
-                            isDeleted ? 'line-through text-slate-400' : 'text-slate-800 hover:text-emerald-700 hover:underline'
-                          }`}
+                          className="p-4 max-w-xs truncate cursor-pointer font-bold text-slate-800 hover:text-emerald-700 hover:underline"
                           title="Klik untuk lihat rincian struk"
                         >
                           {item.jenisPengeluaran || 'Transaksi Kasir'}
@@ -451,7 +423,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
                         </td>
 
                         {/* Nominal */}
-                        <td className={`p-4 text-right font-black ${isDeleted ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                        <td className="p-4 text-right font-black text-slate-900">
                           {formatRupiah(income)}
                         </td>
 
@@ -467,24 +439,14 @@ export default function PenjualanView({ rawData, onRefresh }) {
                               <Eye size={15} />
                             </button>
 
-                            {/* Tombol Hapus Sementara atau Permanen */}
-                            {!isDeleted ? (
-                              <button
-                                onClick={() => handleSoftDelete(item._id)}
-                                className="p-1.5 text-slate-400 hover:text-amber-600 bg-slate-100 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                                title="Pindahkan ke Sampah"
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleHardDelete(item._id)}
-                                className="px-2 py-1 text-[11px] font-bold text-red-600 hover:text-white bg-red-100 hover:bg-red-600 rounded-lg transition-colors cursor-pointer"
-                                title="Hapus Permanen Dari Database"
-                              >
-                                Permanen
-                              </button>
-                            )}
+                            {/* Tombol Hapus Permanen */}
+                            <button
+                              onClick={() => handleDeleteTransaction(item._id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus Permanen Dari Database"
+                            >
+                              <Trash2 size={15} />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -504,18 +466,12 @@ export default function PenjualanView({ rawData, onRefresh }) {
             </span>
             <div className="h-4 w-px bg-slate-700" />
             <button
-              onClick={() => handleBulkAction(false)}
+              onClick={handleBulkAction}
               disabled={isProcessingDelete}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors active:scale-95"
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black cursor-pointer transition-colors active:scale-95 flex items-center gap-1.5 shadow-sm"
             >
-              Hapus Sementara
-            </button>
-            <button
-              onClick={() => handleBulkAction(true)}
-              disabled={isProcessingDelete}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors active:scale-95"
-            >
-              Hapus Permanen
+              <Trash2 size={14} />
+              <span>Hapus Permanen</span>
             </button>
             <button
               onClick={() => setSelectedIds([])}
@@ -594,7 +550,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
                     </div>
 
                     <div className="text-xs text-slate-400 flex justify-between">
-                      <span>Status: {detailModalItem.isDeleted ? 'Sampah' : 'Lunas'}</span>
+                      <span>Status: Lunas</span>
                       <span>Print Struk: {detailModalItem.printCount || 0} kali</span>
                     </div>
                   </div>
@@ -695,7 +651,7 @@ export default function PenjualanView({ rawData, onRefresh }) {
                   </tr>
                 ) : (
                   daysList.map(d => {
-                    const validCount = d.transactions.filter(t => !t.isDeleted).length;
+                    const validCount = d.transactions.length;
                     return (
                       <tr 
                         key={d.dateStr}

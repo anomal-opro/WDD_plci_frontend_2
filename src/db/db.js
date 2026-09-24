@@ -8,119 +8,22 @@ const STORAGE_KEYS = {
   AUTO_INC: 'pengeluaran_auto_increment'
 };
 
-// Seed awal data jika storage masih kosong
+// State awal kosong untuk mode produksi (Zero Dummy Data)
 const INITIAL_SEEDS = {
-  bahan_baku: [
-    {
-      id_bahan_baku: 1,
-      tanggal: '2026-09-20',
-      nama_bahan: 'Beras Premium Ramos',
-      supplier: 'Toko Beras Jaya',
-      kuantitas: 50,
-      satuan: 'kg',
-      harga_satuan: 14000,
-      total_biaya: 700000
-    },
-    {
-      id_bahan_baku: 2,
-      tanggal: '2026-09-21',
-      nama_bahan: 'Ayam Broiler Segar',
-      supplier: 'Agen Unggas Berkah',
-      kuantitas: 25,
-      satuan: 'kg',
-      harga_satuan: 38000,
-      total_biaya: 950000
-    },
-    {
-      id_bahan_baku: 3,
-      tanggal: '2026-09-22',
-      nama_bahan: 'Minyak Goreng Sawit',
-      supplier: 'Distributor Sembako Mandiri',
-      kuantitas: 20,
-      satuan: 'liter',
-      harga_satuan: 17500,
-      total_biaya: 350000
-    },
-    {
-      id_bahan_baku: 4,
-      tanggal: '2026-09-22',
-      nama_bahan: 'Cabai Merah Keriting',
-      supplier: 'Pasar Induk Kramat',
-      kuantitas: 10,
-      satuan: 'kg',
-      harga_satuan: 45000,
-      total_biaya: 450000
-    }
-  ],
-  biaya_tetap: [
-    {
-      id_biaya_tetap: 1,
-      tanggal_bayar: '2026-09-01',
-      nama_pengeluaran: 'Sewa Ruko Utama',
-      periode: 'Bulanan',
-      jumlah_biaya: 4500000,
-      keterangan: 'Pembayaran sewa ruko lantai 1 & 2 periode September 2026'
-    },
-    {
-      id_biaya_tetap: 2,
-      tanggal_bayar: '2026-09-05',
-      nama_pengeluaran: 'Gaji Karyawan Operasional',
-      periode: 'Bulanan',
-      jumlah_biaya: 8000000,
-      keterangan: 'Gaji 4 staf dapur dan pelayanan'
-    },
-    {
-      id_biaya_tetap: 3,
-      tanggal_bayar: '2026-09-10',
-      nama_pengeluaran: 'Internet & Telepon Ruko',
-      periode: 'Bulanan',
-      jumlah_biaya: 450000,
-      keterangan: 'Langganan paket internet 100 Mbps'
-    }
-  ],
-  biaya_variabel: [
-    {
-      id_biaya_variabel: 1,
-      tanggal: '2026-09-18',
-      nama_item: 'Gas LPG 12 Kg',
-      kuantitas: 4,
-      satuan: 'tabung',
-      harga_satuan: 215000,
-      total_biaya: 860000,
-      keterangan: 'Refill gas LPG dapur utama'
-    },
-    {
-      id_biaya_variabel: 2,
-      tanggal: '2026-09-19',
-      nama_item: 'Plastik & Paper Box Takeaway',
-      kuantitas: 500,
-      satuan: 'pcs',
-      harga_satuan: 1200,
-      total_biaya: 600000,
-      keterangan: 'Kemasan makanan bungkus / ojek online'
-    },
-    {
-      id_biaya_variabel: 3,
-      tanggal: '2026-09-21',
-      nama_item: 'Token Listrik Tambahan',
-      kuantitas: 1,
-      satuan: 'voucher',
-      harga_satuan: 250000,
-      total_biaya: 250000,
-      keterangan: 'Beli pulsa listrik PLN 250k'
-    }
-  ]
+  bahan_baku: [],
+  biaya_tetap: [],
+  biaya_variabel: []
 };
 
 function getAutoIncState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.AUTO_INC);
     if (!raw) {
-      return { bahan_baku: 5, biaya_tetap: 4, biaya_variabel: 4 };
+      return { bahan_baku: 1, biaya_tetap: 1, biaya_variabel: 1 };
     }
     return JSON.parse(raw);
   } catch (e) {
-    return { bahan_baku: 5, biaya_tetap: 4, biaya_variabel: 4 };
+    return { bahan_baku: 1, biaya_tetap: 1, biaya_variabel: 1 };
   }
 }
 
@@ -131,16 +34,16 @@ function saveAutoIncState(state) {
 // --- INITIALIZE DATA STORE ---
 export function initDatabase() {
   if (!localStorage.getItem(STORAGE_KEYS.BAHAN_BAKU)) {
-    localStorage.setItem(STORAGE_KEYS.BAHAN_BAKU, JSON.stringify(INITIAL_SEEDS.bahan_baku));
+    localStorage.setItem(STORAGE_KEYS.BAHAN_BAKU, JSON.stringify([]));
   }
   if (!localStorage.getItem(STORAGE_KEYS.BIAYA_TETAP)) {
-    localStorage.setItem(STORAGE_KEYS.BIAYA_TETAP, JSON.stringify(INITIAL_SEEDS.biaya_tetap));
+    localStorage.setItem(STORAGE_KEYS.BIAYA_TETAP, JSON.stringify([]));
   }
   if (!localStorage.getItem(STORAGE_KEYS.BIAYA_VARIABEL)) {
-    localStorage.setItem(STORAGE_KEYS.BIAYA_VARIABEL, JSON.stringify(INITIAL_SEEDS.biaya_variabel));
+    localStorage.setItem(STORAGE_KEYS.BIAYA_VARIABEL, JSON.stringify([]));
   }
   if (!localStorage.getItem(STORAGE_KEYS.AUTO_INC)) {
-    saveAutoIncState({ bahan_baku: 5, biaya_tetap: 4, biaya_variabel: 4 });
+    saveAutoIncState({ bahan_baku: 1, biaya_tetap: 1, biaya_variabel: 1 });
   }
 }
 

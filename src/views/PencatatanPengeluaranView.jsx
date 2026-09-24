@@ -5,7 +5,7 @@ import BiayaVariabelView from '../components/BiayaVariabelView';
 import BiayaTetapView from '../components/BiayaTetapView';
 import ReceiptLightboxModal from '../components/ReceiptLightboxModal';
 
-export default function PencatatanPengeluaranView() {
+export default function PencatatanPengeluaranView({ onRefresh }) {
   // Active Sub-Tab: 'bahan_baku' | 'variabel' | 'tetap'
   const [activeSubTab, setActiveSubTab] = useState('bahan_baku');
 
@@ -58,18 +58,22 @@ export default function PencatatanPengeluaranView() {
       {/* Render Sub-View Terpilih */}
       {activeSubTab === 'bahan_baku' && (
         <BiayaBahanBakuView
+          onDataChange={onRefresh}
           onOpenReceipt={(item) => setLightboxItem(item)}
         />
       )}
 
       {activeSubTab === 'variabel' && (
         <BiayaVariabelView
+          onDataChange={onRefresh}
           onOpenReceipt={(item) => setLightboxItem(item)}
         />
       )}
 
       {activeSubTab === 'tetap' && (
-        <BiayaTetapView />
+        <BiayaTetapView
+          onDataChange={onRefresh}
+        />
       )}
 
       {/* Lightbox Modal Pratinjau Struk */}

@@ -6,7 +6,7 @@
 // --- API BASE & ENDPOINTS ---
 const BACKEND_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) 
   ? import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '') 
-  : "https://backend-mm-v2.vercel.app";
+  : "https://wdd-plci-backend-2.vercel.app";
 
 export const BACKEND_BASE_URL = BACKEND_BASE;
 export const API_URL = `${BACKEND_BASE}/api/transactions`;

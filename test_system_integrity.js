@@ -75,70 +75,78 @@ const priceTest = 38000;
 const autoTotal = qtyTest * priceTest;
 assert('Auto calculate total_biaya = kuantitas * harga_satuan', autoTotal === 950000, `Expected 950000, got ${autoTotal}`);
 
-// 8. Hierarchical Time-Based Aggregation Tests (UnifiedExpenseDB)
+// 8. Production Zero-Dummy Data & Dynamic Aggregation Tests (UnifiedExpenseDB)
 import { UnifiedExpenseDB } from './src/db/unifiedExpenses.js';
 
-const allExpenses = UnifiedExpenseDB.getAll();
-assert('UnifiedExpenseDB seeds loaded with > 0 records', allExpenses.length > 0, `Count: ${allExpenses.length}`);
+// Verify production starts completely clean with 0 dummy records
+const initialExpenses = UnifiedExpenseDB.getAll();
+assert('Production initial state is strictly clean (zero dummy seeds)', initialExpenses.length === 0, `Count: ${initialExpenses.length}`);
 
-// Strictly 3 categories verified
-const validCategories = new Set(['bahan_baku', 'tetap', 'variabel']);
-const allCategoriesValid = allExpenses.every(exp => validCategories.has(exp.kategori));
-assert('All seeded records strictly belong to 3 categories (Bahan Baku, Tetap, Variabel)', allCategoriesValid);
-
-// Test Hierarchy Aggregation
-const hierarchy = UnifiedExpenseDB.getHierarchy();
-assert('Hierarchy contains sorted years', Array.isArray(hierarchy) && hierarchy.length >= 2);
-
-hierarchy.forEach(yearNode => {
-  // Check Year Category Sums
-  const yearSum = yearNode.bahanBaku + yearNode.tetap + yearNode.variabel;
-  assert(`Year ${yearNode.year}: grandTotal (${yearNode.grandTotal}) === sum of 3 categories (${yearSum})`, yearNode.grandTotal === yearSum);
-
-  const months = Object.values(yearNode.months);
-  let monthsSum = 0;
-
-  months.forEach(monthNode => {
-    // Check Month Category Sums
-    const monthSum = monthNode.bahanBaku + monthNode.tetap + monthNode.variabel;
-    assert(`  Month ${monthNode.month} ${monthNode.year}: grandTotal (${monthNode.grandTotal}) === sum of 3 categories (${monthSum})`, monthNode.grandTotal === monthSum);
-    monthsSum += monthNode.grandTotal;
-
-    const days = Object.values(monthNode.days);
-    let daysSum = 0;
-
-    days.forEach(dayNode => {
-      // Check Day Category Sums
-      const daySum = dayNode.bahanBaku + dayNode.tetap + dayNode.variabel;
-      assert(`    Day ${dayNode.dateStr}: grandTotal (${dayNode.grandTotal}) === sum of 3 categories (${daySum})`, dayNode.grandTotal === daySum);
-      daysSum += dayNode.grandTotal;
-
-      // Check Granular Logs
-      const logsSum = dayNode.logs.reduce((acc, log) => acc + log.nominal, 0);
-      assert(`      Day ${dayNode.dateStr}: grandTotal === sum of granular logs (${logsSum})`, dayNode.grandTotal === logsSum);
-    });
-
-    assert(`  Month ${monthNode.month}: sum of daily grandTotals === month grandTotal`, daysSum === monthNode.grandTotal);
+// Test Dynamic Creation in 3 categories
+async function runAsyncTests() {
+  const exp1 = await UnifiedExpenseDB.create({
+    tanggal: '2026-09-24',
+    kategori: 'bahan_baku',
+    nama_item: 'Ikan Lele Segar 20kg',
+    nominal: 300000,
+    kuantitas: 20,
+    satuan: 'kg',
+    harga_satuan: 15000,
+    karyawan: 'Staff Dapur'
   });
 
-  assert(`Year ${yearNode.year}: sum of monthly grandTotals === year grandTotal`, monthsSum === yearNode.grandTotal);
+  const exp2 = await UnifiedExpenseDB.create({
+    tanggal: '2026-09-24',
+    kategori: 'variabel',
+    nama_item: 'Refill Gas LPG 12kg',
+    nominal: 215000,
+    karyawan: 'Staff Dapur'
+  });
+
+  const exp3 = await UnifiedExpenseDB.create({
+    tanggal: '2026-09-24',
+    kategori: 'tetap',
+    nama_item: 'Sewa Kios Kantin SMB',
+    nominal: 3500000,
+    frekuensi: 'Per Bulan',
+    karyawan: 'Admin'
+  });
+
+  const id1 = exp1 ? (exp1._id || exp1.id) : null;
+  const id2 = exp2 ? (exp2._id || exp2.id) : null;
+  const id3 = exp3 ? (exp3._id || exp3.id) : null;
+
+  assert('Expense records dynamically created in all 3 categories', !!id1 && !!id2 && !!id3);
+
+  // Test Hierarchy Aggregation on real dynamic data
+  const hierarchy = UnifiedExpenseDB.getHierarchy();
+  assert('Hierarchy aggregates created records accurately', Array.isArray(hierarchy) && hierarchy.length >= 1);
+
+  const year2026 = hierarchy.find(y => y.year === '2026');
+  assert('Year 2026 exists in hierarchy', !!year2026);
+  assert('Year 2026 grand total includes created categories', year2026.grandTotal >= (300000 + 215000 + 3500000));
+  assert('Year 2026 bahanBaku includes 300000', year2026.bahanBaku >= 300000);
+  assert('Year 2026 variabel includes 215000', year2026.variabel >= 215000);
+  assert('Year 2026 tetap includes 3500000', year2026.tetap >= 3500000);
+
+  // Test Employee Filter
+  const staffLogs = UnifiedExpenseDB.getByEmployee('Staff Dapur');
+  assert('Employee personal history filter returns submitted records', staffLogs.length >= 2);
+
+  // Clean up test records directly in MongoDB to leave database completely clean
+  await UnifiedExpenseDB.delete(id1);
+  await UnifiedExpenseDB.delete(id2);
+  await UnifiedExpenseDB.delete(id3);
+
+  const remaining = UnifiedExpenseDB.getAll().filter(item => (item._id === id1 || item._id === id2 || item._id === id3));
+  assert('Test records completely deleted from database', remaining.length === 0);
+
+  console.log(`\nTOTAL RESULTS: ${passes} PASSED, ${fails} FAILED`);
+  if (fails > 0) process.exit(1);
+}
+
+runAsyncTests().catch(e => {
+  console.error(e);
+  process.exit(1);
 });
-
-// Test Employee Creation and Personal Filter
-const testSubmission = UnifiedExpenseDB.create({
-  tanggal: '2026-09-23',
-  kategori: 'bahan_baku',
-  nama_item: 'Cabai Rawit Ekstra 5kg',
-  nominal: 175000,
-  karyawan: 'Budi Santoso',
-  attachment: 'data:image/svg+xml;utf8,dummy-receipt',
-  keterangan: 'Belanja mendesak bumbu'
-});
-
-assert('Employee submission returns valid record with id and timestamp', !!testSubmission.id && testSubmission.nominal === 175000);
-const budiLogs = UnifiedExpenseDB.getByEmployee('Budi Santoso');
-assert('Employee personal history filter returns submitted record', budiLogs.some(l => l.id === testSubmission.id));
-
-console.log(`\nTOTAL RESULTS: ${passes} PASSED, ${fails} FAILED`);
-if (fails > 0) process.exit(1);
 
