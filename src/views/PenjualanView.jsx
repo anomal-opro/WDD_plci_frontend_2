@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ChevronDown, ChevronUp, ArrowLeft, ArrowRight, Download, 
   Trash2, Printer, CheckSquare, Square, Eye, FileText, 
@@ -204,15 +204,69 @@ export default function PenjualanView({ rawData, onRefresh }) {
     return sortedYears;
   }, [salesData, expandedYears]);
 
+  // Sinkronisasi otomatis selectedDay ketika data mentah (rawData / groupedYears) ter-refresh dari server
+  useEffect(() => {
+    if (selectedDay) {
+      for (const y of groupedYears) {
+        for (const m of Object.values(y.months || {})) {
+          if (m.days && m.days[selectedDay.dateStr]) {
+            setSelectedDay(m.days[selectedDay.dateStr]);
+            return;
+          }
+        }
+      }
+      // Jika semua transaksi di hari tersebut terhapus habis
+      setSelectedDay(prev => prev ? { ...prev, transactions: [], cashTotal: 0, bcaTotal: 0, qrisTotal: 0, totalIncome: 0 } : null);
+    }
+  }, [groupedYears]);
+
+  // Sinkronisasi otomatis selectedMonth ketika data mentah ter-refresh dari server
+  useEffect(() => {
+    if (selectedMonth) {
+      for (const y of groupedYears) {
+        if (y.months && y.months[selectedMonth.month]) {
+          setSelectedMonth(y.months[selectedMonth.month]);
+          return;
+        }
+      }
+    }
+  }, [groupedYears]);
+
   // Handle single permanent delete directly from MongoDB
   const handleDeleteTransaction = async (id) => {
     if (!id) return;
     if (!window.confirm("Hapus transaksi penjualan ini secara permanen dari database MongoDB?")) return;
+
+    // 1. Optimistic Update: Langsung hilangkan baris transaksi di layar tanpa menunggu F5/reload
+    const prevDay = selectedDay;
+    setSelectedDay(prev => {
+      if (!prev) return prev;
+      const newTxs = (prev.transactions || []).filter(t => t._id !== id);
+      const cashTotal = newTxs.reduce((sum, t) => sum + (Number(t.cash) || 0), 0);
+      const bcaTotal = newTxs.reduce((sum, t) => sum + (Number(t.bca) || 0), 0);
+      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.gofood) || Number(t.qris) || 0), 0);
+      return {
+        ...prev,
+        transactions: newTxs,
+        cashTotal,
+        bcaTotal,
+        qrisTotal,
+        totalIncome: cashTotal + bcaTotal + qrisTotal
+      };
+    });
+    setSelectedIds(prev => prev.filter(i => i !== id));
+
     try {
-      await fetch(`${API_URL}/hard/${id}`, { method: 'DELETE' });
-      if (onRefresh) onRefresh();
+      const res = await fetch(`${API_URL}/hard/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Server mengembalikan status gagal');
+      }
+      // Re-fetch data pusat agar state App dan seluruh rekap sinkron
+      if (onRefresh) await onRefresh();
     } catch (e) {
-      alert("Gagal menghapus transaksi dari database");
+      alert("Gagal menghapus transaksi dari database: " + e.message);
+      setSelectedDay(prevDay);
+      if (onRefresh) await onRefresh();
     }
   };
 
@@ -222,16 +276,41 @@ export default function PenjualanView({ rawData, onRefresh }) {
     if (!window.confirm(`🚨 Hapus ${selectedIds.length} transaksi terpilih secara PERMANEN dari database MongoDB?`)) return;
 
     setIsProcessingDelete(true);
+    const targetIds = [...selectedIds];
+    const prevDay = selectedDay;
+
+    // 1. Optimistic Update: Langsung bersihkan baris terpilih dari layar
+    setSelectedDay(prev => {
+      if (!prev) return prev;
+      const newTxs = (prev.transactions || []).filter(t => !targetIds.includes(t._id));
+      const cashTotal = newTxs.reduce((sum, t) => sum + (Number(t.cash) || 0), 0);
+      const bcaTotal = newTxs.reduce((sum, t) => sum + (Number(t.bca) || 0), 0);
+      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.gofood) || Number(t.qris) || 0), 0);
+      return {
+        ...prev,
+        transactions: newTxs,
+        cashTotal,
+        bcaTotal,
+        qrisTotal,
+        totalIncome: cashTotal + bcaTotal + qrisTotal
+      };
+    });
+    setSelectedIds([]);
+
     try {
-      await fetch(`${API_URL}/bulk`, {
+      const res = await fetch(`${API_URL}/bulk`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedIds, isHardDelete: true })
+        body: JSON.stringify({ ids: targetIds, isHardDelete: true })
       });
-      setSelectedIds([]);
-      if (onRefresh) onRefresh();
+      if (!res.ok) {
+        throw new Error('Server mengembalikan status gagal');
+      }
+      if (onRefresh) await onRefresh();
     } catch (e) {
-      alert("Gagal memproses penghapusan massal");
+      alert("Gagal memproses penghapusan massal: " + e.message);
+      setSelectedDay(prevDay);
+      if (onRefresh) await onRefresh();
     } finally {
       setIsProcessingDelete(false);
     }
