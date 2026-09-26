@@ -13,6 +13,7 @@ export const API_URL = `${BACKEND_BASE}/api/transactions`;
 export const RECURRING_URL = `${BACKEND_BASE}/api/recurring`;
 export const EMERGENCY_URL = `${BACKEND_BASE}/api/emergency`;
 export const EXPENSES_URL = `${BACKEND_BASE}/api/expenses`;
+export const DAILY_STOCKS_URL = `${BACKEND_BASE}/api/daily-stocks`;
 
 // --- AUTH & BRANCH CONFIG ---
 export const ADMIN_PASSWORD = "190726";

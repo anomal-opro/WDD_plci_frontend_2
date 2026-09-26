@@ -3,12 +3,12 @@ import {
   ChevronDown, ChevronUp, ArrowLeft, ArrowRight, Download, 
   Trash2, Printer, CheckSquare, Square, Eye, FileText, 
   Calendar, Clock, DollarSign, AlertCircle, ShoppingBag, X,
-  CheckCircle, ListFilter, CreditCard, Wallet
+  CheckCircle, ListFilter, CreditCard, Wallet, Boxes, Loader2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatRupiah, parseYearMonthDate, parseItemsString } from '../shared/utils';
-import { API_URL, BRANCH_INFO } from '../shared/constants';
+import { API_URL, BRANCH_INFO, DAILY_STOCKS_URL } from '../shared/constants';
 
 export default function PenjualanView({ rawData, onRefresh }) {
   // Navigation states: 'yearly' | 'monthly' | 'daily'
@@ -29,6 +29,89 @@ export default function PenjualanView({ rawData, onRefresh }) {
 
   // Order Detail Modal
   const [detailModalItem, setDetailModalItem] = useState(null);
+
+  // Data Stok Harian & Data Item Terjual Modals (Requirement 1A & 1B)
+  const [dailyStockModal, setDailyStockModal] = useState({ isOpen: false, day: null, data: [], isLoading: false });
+  const [soldItemsModal, setSoldItemsModal] = useState({ isOpen: false, day: null, items: [] });
+
+  // Hitung total quantity item terjual dari seluruh transaksi pada suatu hari (Quantity Based!)
+  const calculateDaySoldItems = (transactions) => {
+    if (!Array.isArray(transactions)) return [];
+    const itemMap = {};
+
+    transactions.forEach(tx => {
+      if (tx.isDeleted) return;
+      if (tx.jenisPengeluaran && tx.jenisPengeluaran.includes('[UNPAID]')) return;
+      if ((Number(tx.totalPengeluaran) || 0) > 0) return;
+
+      // 1. Structured items (jika tersedia dari kasir baru)
+      if (Array.isArray(tx.items) && tx.items.length > 0) {
+        tx.items.forEach(i => {
+          const name = (i.name || '').trim();
+          if (!name) return;
+          const qty = Number(i.qty) || 1;
+          const price = Number(i.price) || 0;
+          if (!itemMap[name]) {
+            itemMap[name] = { name, totalQty: 0, totalPrice: 0 };
+          }
+          itemMap[name].totalQty += qty;
+          itemMap[name].totalPrice += price * qty;
+        });
+        return;
+      }
+
+      // 2. Parse dari string jenisPengeluaran (fallback & legacy)
+      const cleanInput = (tx.jenisPengeluaran || '').replace(/^(?:\[[^\]]+\]\s*)*/, '');
+      const parts = cleanInput.split(',').map(p => p.trim()).filter(Boolean);
+
+      parts.forEach(part => {
+        if (part.startsWith('**') || part.startsWith('++')) return;
+        const main = part.split('::')[0].trim();
+        const match = main.match(/^(\d+)\s*x\s+(.+)$/i);
+        if (match) {
+          const qty = parseInt(match[1], 10) || 1;
+          const name = match[2].trim();
+          if (!itemMap[name]) {
+            itemMap[name] = { name, totalQty: 0, totalPrice: 0 };
+          }
+          itemMap[name].totalQty += qty;
+        } else if (main) {
+          const name = main.trim();
+          if (!itemMap[name]) {
+            itemMap[name] = { name, totalQty: 0, totalPrice: 0 };
+          }
+          itemMap[name].totalQty += 1;
+        }
+      });
+    });
+
+    return Object.values(itemMap).sort((a, b) => b.totalQty - a.totalQty);
+  };
+
+  const handleOpenDailyStockModal = async (day) => {
+    setDailyStockModal({ isOpen: true, day, data: [], isLoading: true });
+    try {
+      const res = await fetch(`${DAILY_STOCKS_URL}?sheet=${encodeURIComponent(BRANCH_INFO.sheetName)}&tanggal=${encodeURIComponent(day.dateStr)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setDailyStockModal(prev => ({
+          ...prev,
+          data: Array.isArray(json.data) ? json.data : [],
+          isLoading: false
+        }));
+      } else {
+        setDailyStockModal(prev => ({ ...prev, data: [], isLoading: false }));
+      }
+    } catch (err) {
+      console.warn('Gagal memuat data stok harian:', err);
+      setDailyStockModal(prev => ({ ...prev, data: [], isLoading: false }));
+    }
+  };
+
+  const handleOpenSoldItemsModal = (day) => {
+    const items = calculateDaySoldItems(day.transactions || []);
+    setSoldItemsModal({ isOpen: true, day, items });
+  };
 
   // 1. Filter transaksi khusus PLCI Kantin SMB & Penjualan (bukan UNPAID, totalPengeluaran === 0, bukan deleted)
   const salesData = useMemo(() => {
@@ -324,20 +407,64 @@ export default function PenjualanView({ rawData, onRefresh }) {
           </div>
         </div>
 
-        {/* Daily Summary Stats */}
-        <div className="grid grid-cols-3 gap-3 sm:gap-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80">
+        {/* Daily Summary Stats (5 Cards: Cash, BCA, QRIS, Data Stok Hari Ini, Data Item Terjual) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
             <span className="text-[10px] font-bold text-slate-400 uppercase">CASH</span>
             <p className="text-base sm:text-lg font-black text-slate-900 mt-0.5">{formatRupiah(selectedDay.cashTotal)}</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
             <span className="text-[10px] font-bold text-slate-400 uppercase">BCA</span>
             <p className="text-base sm:text-lg font-black text-blue-700 mt-0.5">{formatRupiah(selectedDay.bcaTotal)}</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
             <span className="text-[10px] font-bold text-slate-400 uppercase">QRIS</span>
             <p className="text-base sm:text-lg font-black text-purple-700 mt-0.5">{formatRupiah(selectedDay.qrisTotal)}</p>
           </div>
+
+          {/* CARD 4: DATA STOK HARI INI (REQUIREMENT 1A) */}
+          <button
+            type="button"
+            onClick={() => handleOpenDailyStockModal(selectedDay)}
+            className="bg-white hover:bg-emerald-50/60 p-4 rounded-2xl border border-slate-200/80 hover:border-emerald-300 text-left transition-all active:scale-95 cursor-pointer shadow-2xs group flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1 group-hover:underline">
+                <Boxes size={12} /> Data Stok
+              </span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                Detail →
+              </span>
+            </div>
+            <p className="text-sm sm:text-base font-black text-emerald-800 mt-1">
+              Data Stok Hari Ini
+            </p>
+          </button>
+
+          {/* CARD 5: DATA ITEM TERJUAL (REQUIREMENT 1B) */}
+          {(() => {
+            const soldList = calculateDaySoldItems(selectedDay.transactions || []);
+            const totalQty = soldList.reduce((acc, curr) => acc + curr.totalQty, 0);
+            return (
+              <button
+                type="button"
+                onClick={() => handleOpenSoldItemsModal(selectedDay)}
+                className="bg-white hover:bg-amber-50/60 p-4 rounded-2xl border border-slate-200/80 hover:border-amber-300 text-left transition-all active:scale-95 cursor-pointer shadow-2xs group flex flex-col justify-between"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-[10px] font-bold text-amber-700 uppercase flex items-center gap-1 group-hover:underline">
+                    <ShoppingBag size={12} /> Terjual
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                    {totalQty} Pcs →
+                  </span>
+                </div>
+                <p className="text-sm sm:text-base font-black text-amber-800 mt-1">
+                  Data Item Terjual
+                </p>
+              </button>
+            );
+          })()}
         </div>
 
         {/* Transactions Table Card */}
@@ -563,6 +690,205 @@ export default function PenjualanView({ rawData, onRefresh }) {
               >
                 TUTUP
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 1: DATA STOK HARI INI (REQUIREMENT 1A) */}
+        {dailyStockModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90dvh]">
+              <div className="flex justify-between items-start border-b border-slate-100 pb-4 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center font-black">
+                    <Boxes size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 leading-tight">Data Stok Hari Ini</h3>
+                    <p className="text-xs text-slate-500 font-bold">{dailyStockModal.day?.dateStr}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDailyStockModal({ isOpen: false, day: null, data: [], isLoading: false })}
+                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-4 space-y-4">
+                {dailyStockModal.isLoading ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <Loader2 size={32} className="animate-spin text-emerald-600" />
+                    <span className="text-xs font-bold">Memuat data audit stok...</span>
+                  </div>
+                ) : dailyStockModal.data.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 font-bold text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-6">
+                    <Boxes size={36} className="mx-auto mb-2 opacity-40 text-slate-400" />
+                    Tidak ada rekaman data stok harian tersinkronisasi untuk tanggal ini.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {dailyStockModal.data.map((item, idx) => {
+                      const historyList = Array.isArray(item.history) ? item.history : [];
+                      const netAdjustment = (item.totalStokInput !== undefined ? item.totalStokInput : item.stokAwal) - (item.stokAwal || 0);
+
+                      return (
+                        <div key={item._id || item.menuId || idx} className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2 border-b border-slate-200/60 pb-2.5">
+                            <div>
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">{item.category || 'Satuan'}</span>
+                              <h4 className="text-sm font-black text-slate-900">{item.menuName}</h4>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Stok Akhir</span>
+                              <span className="text-lg font-black text-emerald-700">
+                                {item.totalStokInput !== undefined ? item.totalStokInput : item.stokAwal} Pcs
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Stok Awal</span>
+                              <span className="font-black text-slate-800 text-sm">{item.stokAwal || 0} Pcs</span>
+                              {item.stokAwalTime && (
+                                <span className="text-[10px] text-slate-400 block mt-0.5">Jam Input: {item.stokAwalTime}</span>
+                              )}
+                            </div>
+                            <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Penyesuaian</span>
+                              <span className={`font-black text-sm ${netAdjustment > 0 ? 'text-emerald-600' : netAdjustment < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+                                {netAdjustment > 0 ? `+${netAdjustment}` : netAdjustment} Pcs
+                              </span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">{historyList.length} kali penyesuaian</span>
+                            </div>
+                          </div>
+
+                          {/* Riwayat Detail Histori Penyesuaian (+ / -) */}
+                          {historyList.length > 0 && (
+                            <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+                              <div className="bg-slate-100/70 px-3 py-1.5 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-wider flex justify-between">
+                                <span>Histori Perubahan (+ / -)</span>
+                                <span>Waktu</span>
+                              </div>
+                              <div className="divide-y divide-slate-100 max-h-36 overflow-y-auto">
+                                {historyList.map((h, hIdx) => (
+                                  <div key={hIdx} className="px-3 py-2 text-xs flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${h.delta > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                                        {h.delta > 0 ? `+${h.delta}` : h.delta}
+                                      </span>
+                                      <span className="font-bold text-slate-700 capitalize">
+                                        {h.type || (h.delta > 0 ? 'Penambahan' : 'Pengurangan')}
+                                      </span>
+                                    </div>
+                                    <span className="text-[11px] font-semibold text-slate-400">
+                                      {h.time}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 shrink-0">
+                <button
+                  onClick={() => setDailyStockModal({ isOpen: false, day: null, data: [], isLoading: false })}
+                  className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                >
+                  TUTUP
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 2: DATA ITEM TERJUAL (REQUIREMENT 1B) */}
+        {soldItemsModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90dvh]">
+              <div className="flex justify-between items-start border-b border-slate-100 pb-4 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 bg-amber-50 text-amber-800 rounded-2xl flex items-center justify-center font-black">
+                    <ShoppingBag size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 leading-tight">Data Item Terjual</h3>
+                    <p className="text-xs text-slate-500 font-bold">{soldItemsModal.day?.dateStr}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSoldItemsModal({ isOpen: false, day: null, items: [] })}
+                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Total Banner */}
+              <div className="my-3 p-3 bg-amber-50 border border-amber-200/70 rounded-2xl flex items-center justify-between shrink-0">
+                <span className="text-xs font-bold text-amber-900">Total Akumulasi Quantity Terjual:</span>
+                <span className="text-base sm:text-lg font-black text-amber-900">
+                  {soldItemsModal.items.reduce((acc, curr) => acc + curr.totalQty, 0)} Pcs / Porsi
+                </span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-2">
+                {soldItemsModal.items.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 font-bold text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-6">
+                    Tidak ada transaksi penjualan untuk tanggal ini.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs whitespace-nowrap">
+                      <thead className="bg-slate-50 border-b border-slate-200 font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                        <tr>
+                          <th className="p-3 w-10 text-center">No</th>
+                          <th className="p-3">Nama Item</th>
+                          <th className="p-3 text-right">Quantity Terjual</th>
+                          {soldItemsModal.items.some(i => i.totalPrice > 0) && (
+                            <th className="p-3 text-right">Subtotal Omzet</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {soldItemsModal.items.map((it, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-3 text-center text-slate-400 font-bold">{idx + 1}</td>
+                            <td className="p-3 font-extrabold text-slate-900">{it.name}</td>
+                            <td className="p-3 text-right">
+                              <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg font-black text-xs">
+                                {it.totalQty} Pcs
+                              </span>
+                            </td>
+                            {soldItemsModal.items.some(i => i.totalPrice > 0) && (
+                              <td className="p-3 text-right font-black text-slate-800">
+                                {it.totalPrice > 0 ? formatRupiah(it.totalPrice) : '-'}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 shrink-0">
+                <button
+                  onClick={() => setSoldItemsModal({ isOpen: false, day: null, items: [] })}
+                  className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                >
+                  TUTUP
+                </button>
+              </div>
             </div>
           </div>
         )}
