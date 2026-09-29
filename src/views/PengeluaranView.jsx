@@ -120,7 +120,7 @@ export default function PengeluaranView({ onRefresh }) {
     const tableRows = items.map((it, idx) => [
       idx + 1,
       it.tanggal,
-      it.nama_item + (it.keterangan ? ` (${it.keterangan})` : ''),
+      it.nama_item,
       it.kategoriLabel || it.kategori,
       formatRupiah(it.nominal)
     ]);

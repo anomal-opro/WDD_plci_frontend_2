@@ -5,18 +5,18 @@ import { UnifiedExpenseDB } from '../db/unifiedExpenses';
 
 const PRESETS = [
   { name: 'Ikan Lele Segar', unit: 'kg' },
-  { name: 'Ayam Broiler', unit: 'ekor' },
-  { name: 'Bebek Segar', unit: 'ekor' },
-  { name: 'Cabai Rawit Merah', unit: 'kg' },
-  { name: 'Beras Ramos', unit: 'karung' },
-  { name: 'Minyak Sawit', unit: 'liter' },
-  { name: 'Bumbu Sambal', unit: 'pack' },
-  { name: 'Kol & Lalapan', unit: 'kg' },
-  { name: 'Tahu & Tempe', unit: 'papan' },
+  // { name: 'Ayam Broiler', unit: 'ekor' },
+  // { name: 'Bebek Segar', unit: 'ekor' },
+  // { name: 'Cabai Rawit Merah', unit: 'kg' },
+  // { name: 'Beras Ramos', unit: 'karung' },
+  // { name: 'Minyak Sawit', unit: 'liter' },
+  // { name: 'Bumbu Sambal', unit: 'pack' },
+  // { name: 'Kol & Lalapan', unit: 'kg' },
+  // { name: 'Tahu & Tempe', unit: 'papan' },
   { name: 'Telur Ayam', unit: 'kg' }
 ];
 
-const SATUAN_OPTIONS = ['kg', 'ekor', 'liter', 'karung', 'pack', 'papan', 'ikat', 'pcs'];
+const SATUAN_OPTIONS = ['none','kg', 'renteng', 'ekor', 'liter', 'karung', 'pack', 'papan', 'ikat', 'pcs'];
 
 export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
   const [dataVersion, setDataVersion] = useState(0);
@@ -35,8 +35,8 @@ export default function BiayaBahanBakuView({ onDataChange, onOpenReceipt }) {
 
   // Form State (Tanpa nama staf)
   const [namaBahan, setNamaBahan] = useState('');
-  const [kuantitas, setKuantitas] = useState('');
-  const [satuan, setSatuan] = useState('kg');
+  const [kuantitas, setKuantitas] = useState('0');
+  const [satuan, setSatuan] = useState('none');
   const [totalBiaya, setTotalBiaya] = useState('');
   const [tanggal, setTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [attachment, setAttachment] = useState(null);
