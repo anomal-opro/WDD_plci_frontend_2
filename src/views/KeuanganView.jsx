@@ -88,9 +88,10 @@ export default function KeuanganView({ rawData, onRefresh }) {
     return null;
   };
 
-  // Helper calculate transaction income
+  // Helper calculate transaction income — hanya 3 metode: CASH, BCA, QRIS
+  // BACKWARD-COMPAT: baca gofood+qris karena data historis lama tersimpan di field gofood
   const getIncome = (t) => {
-    const total = (Number(t.cash) || 0) + (Number(t.bca) || 0) + (Number(t.gofood) || 0) + (Number(t.qris) || 0);
+    const total = (Number(t.cash) || 0) + (Number(t.bca) || 0) + (Number(t.qris) || 0) + (Number(t.gofood) || 0);
     return total > 0 ? total : (Number(t.totalPendapatan) || Number(t.total) || 0);
   };
 

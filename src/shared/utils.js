@@ -179,3 +179,58 @@ export const parseItemsString = (itemsStr) => {
 
   return { orderType, cabbageOpt, sambalOpt, note, payMethod, payGiven, payChange, realItems };
 };
+
+// --- FORMAT NOMOR ANTRIAN ---
+export const formatQueue = (num) => `A-${String(num).padStart(3, '0')}`;
+
+// --- EKSTRAKSI NOMOR ANTRIAN TERPROTEKSI ---
+export const extractQueueNumber = (str) => {
+  if (!str || typeof str !== 'string') return null;
+
+  const prefixMatch = str.match(/^\s*(?:\[UNPAID\]\s*)?\[\s*A-(\d+)/i);
+  if (prefixMatch && prefixMatch[1]) {
+    return parseInt(prefixMatch[1], 10);
+  }
+
+  const labelMatch = str.match(/^\s*A-(\d+)/i);
+  if (labelMatch && labelMatch[1]) {
+    return parseInt(labelMatch[1], 10);
+  }
+
+  return null;
+};
+
+// --- UNIFIED QUEUE NUMBER CALCULATOR ---
+export const calculateNextQueueNumber = (rawData, localOrders = [], todayStr = '') => {
+  const safeRaw = Array.isArray(rawData) ? rawData : [];
+  const safeLocal = Array.isArray(localOrders) ? localOrders : [];
+  const targetDate = todayStr || getTodayStr();
+
+  let maxQueue = 0;
+
+  safeRaw.forEach(t => {
+    if (t.isDeleted) return;
+    if (t.jenisPengeluaran && t.jenisPengeluaran.includes('[LAPORAN SISTEM]')) return;
+
+    const txDate = t.tanggal || (t.createdAt ? formatIndoDate(new Date(t.createdAt)) : '');
+    if (txDate && txDate !== targetDate) return;
+
+    const qNum = extractQueueNumber(t.jenisPengeluaran);
+    if (qNum && qNum > maxQueue) {
+      maxQueue = qNum;
+    }
+  });
+
+  safeLocal.forEach(ord => {
+    const ordDate = ord.tanggal || (ord.createdAt ? formatIndoDate(new Date(ord.createdAt)) : '');
+    if (ordDate && ordDate !== targetDate) return;
+
+    const qNum = extractQueueNumber(ord.queue);
+    if (qNum && qNum > maxQueue) {
+      maxQueue = qNum;
+    }
+  });
+
+  return maxQueue + 1;
+};
+

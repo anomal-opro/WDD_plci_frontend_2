@@ -125,9 +125,11 @@ export default function PenjualanView({ rawData, onRefresh }) {
     });
   }, [rawData]);
 
-  // Helper get nominal income
+  // Helper get nominal income — hanya 3 metode: CASH, BCA, QRIS
+  // BACKWARD-COMPAT: baca gofood+qris karena data historis lama tersimpan di field gofood
+  // Data baru dari kasir yang sudah diupdate akan masuk ke field qris
   const getIncome = (t) => {
-    const total = (Number(t.cash) || 0) + (Number(t.bca) || 0) + (Number(t.gofood) || 0) + (Number(t.qris) || 0);
+    const total = (Number(t.cash) || 0) + (Number(t.bca) || 0) + (Number(t.qris) || 0) + (Number(t.gofood) || 0);
     return total > 0 ? total : (Number(t.totalPendapatan) || Number(t.total) || 0);
   };
 
@@ -153,7 +155,8 @@ export default function PenjualanView({ rawData, onRefresh }) {
       yearsMap[year].totalIncome += income;
       yearsMap[year].cashTotal += Number(item.cash) || 0;
       yearsMap[year].bcaTotal += Number(item.bca) || 0;
-      yearsMap[year].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
+      // BACKWARD-COMPAT: jumlahkan gofood+qris (data lama simpan di gofood, data baru di qris)
+      yearsMap[year].qrisTotal += (Number(item.qris) || 0) + (Number(item.gofood) || 0);
 
       if (!yearsMap[year].months[month]) {
         yearsMap[year].months[month] = {
@@ -172,7 +175,8 @@ export default function PenjualanView({ rawData, onRefresh }) {
       yearsMap[year].months[month].totalIncome += income;
       yearsMap[year].months[month].cashTotal += Number(item.cash) || 0;
       yearsMap[year].months[month].bcaTotal += Number(item.bca) || 0;
-      yearsMap[year].months[month].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
+      // BACKWARD-COMPAT: jumlahkan gofood+qris
+      yearsMap[year].months[month].qrisTotal += (Number(item.qris) || 0) + (Number(item.gofood) || 0);
       yearsMap[year].months[month].transactionCount += 1;
 
       if (!yearsMap[year].months[month].days[fullDateStr]) {
@@ -192,7 +196,8 @@ export default function PenjualanView({ rawData, onRefresh }) {
       yearsMap[year].months[month].days[fullDateStr].totalIncome += income;
       yearsMap[year].months[month].days[fullDateStr].cashTotal += Number(item.cash) || 0;
       yearsMap[year].months[month].days[fullDateStr].bcaTotal += Number(item.bca) || 0;
-      yearsMap[year].months[month].days[fullDateStr].qrisTotal += (Number(item.gofood) || Number(item.qris) || 0);
+      // BACKWARD-COMPAT: jumlahkan gofood+qris
+      yearsMap[year].months[month].days[fullDateStr].qrisTotal += (Number(item.qris) || 0) + (Number(item.gofood) || 0);
       yearsMap[year].months[month].days[fullDateStr].transactions.push(item);
     });
 
@@ -244,7 +249,8 @@ export default function PenjualanView({ rawData, onRefresh }) {
       const newTxs = (prev.transactions || []).filter(t => t._id !== id);
       const cashTotal = newTxs.reduce((sum, t) => sum + (Number(t.cash) || 0), 0);
       const bcaTotal = newTxs.reduce((sum, t) => sum + (Number(t.bca) || 0), 0);
-      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.gofood) || Number(t.qris) || 0), 0);
+      // BACKWARD-COMPAT: gofood+qris
+      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.qris) || 0) + (Number(t.gofood) || 0), 0);
       return {
         ...prev,
         transactions: newTxs,
@@ -285,7 +291,8 @@ export default function PenjualanView({ rawData, onRefresh }) {
       const newTxs = (prev.transactions || []).filter(t => !targetIds.includes(t._id));
       const cashTotal = newTxs.reduce((sum, t) => sum + (Number(t.cash) || 0), 0);
       const bcaTotal = newTxs.reduce((sum, t) => sum + (Number(t.bca) || 0), 0);
-      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.gofood) || Number(t.qris) || 0), 0);
+      // BACKWARD-COMPAT: gofood+qris
+      const qrisTotal = newTxs.reduce((sum, t) => sum + (Number(t.qris) || 0) + (Number(t.gofood) || 0), 0);
       return {
         ...prev,
         transactions: newTxs,
@@ -401,7 +408,9 @@ export default function PenjualanView({ rawData, onRefresh }) {
       const time = t.createdAt ? new Date(t.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
       let method = 'CASH';
       if ((t.bca || 0) > 0) method = 'BCA';
+      // BACKWARD-COMPAT: cek gofood dan qris keduanya
       else if ((t.gofood || 0) > 0 || (t.qris || 0) > 0) method = 'QRIS';
+
 
       return [
         time,
@@ -423,12 +432,13 @@ export default function PenjualanView({ rawData, onRefresh }) {
     doc.save(`Laporan_Harian_${dayData.dateStr.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   };
 
-  // Helper detect payment method badge
+  // Helper detect payment method badge — hanya 3 metode: CASH, BCA, QRIS
   const renderPayBadge = (t) => {
     if ((Number(t.bca) || 0) > 0) {
       return <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-800">BCA</span>;
     }
-    if ((Number(t.gofood) || 0) > 0 || (Number(t.qris) || 0) > 0) {
+    // BACKWARD-COMPAT: cek gofood dan qris keduanya untuk data historis
+    if ((Number(t.qris) || 0) > 0 || (Number(t.gofood) || 0) > 0) {
       return <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-purple-100 text-purple-800">QRIS</span>;
     }
     return <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800">CASH</span>;
